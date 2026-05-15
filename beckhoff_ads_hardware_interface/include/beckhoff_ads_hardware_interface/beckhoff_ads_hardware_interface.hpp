@@ -120,7 +120,7 @@ namespace beckhoff_ads_hardware_interface
 
   private:
     rclcpp::Logger getLogger() { return rclcpp::get_logger("BeckhoffADSHardwareInterface"); }
-    std::rclcpp::Clock logging_throttle_clock_{RCL_STEADY_TIME};
+    rclcpp::Clock logging_throttle_clock_{RCL_STEADY_TIME};
 
     // ========= PLC ==============================
 
