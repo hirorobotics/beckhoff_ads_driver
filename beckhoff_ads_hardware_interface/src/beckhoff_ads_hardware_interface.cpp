@@ -23,8 +23,6 @@ namespace beckhoff_ads_hardware_interface
     hardware_interface::CallbackReturn BeckhoffADSHardwareInterface::on_init(
         const hardware_interface::HardwareComponentParams & /*params*/)
     {
-        logging_throttle_clock_ = std::make_shared<rclcpp::Clock>(RCL_STEADY_TIME);
-
         return CallbackReturn::SUCCESS;
     }
 
@@ -429,7 +427,7 @@ namespace beckhoff_ads_hardware_interface
 
         if (ads_sum_read_error != ADSERR_NOERR)
         {
-            RCLCPP_ERROR_THROTTLE(getLogger(), *logging_throttle_clock_, 1000,
+            RCLCPP_ERROR_THROTTLE(getLogger(), logging_throttle_clock_, 1000,
                                   "Overall ADS Sum Read Error: 0x%lX.", ads_sum_read_error);
             // TODO: See if we need to do something on read error. Maybe assign NaN to all interfaces?
             return hardware_interface::return_type::ERROR;
@@ -437,7 +435,7 @@ namespace beckhoff_ads_hardware_interface
 
         if (bytes_read_from_plc != ads_buffer_sum_read_response_.size())
         {
-            RCLCPP_ERROR_THROTTLE(getLogger(), *logging_throttle_clock_, 1000,
+            RCLCPP_ERROR_THROTTLE(getLogger(), logging_throttle_clock_, 1000,
                                   "ADS Sum Read size mismatch. Expected %zu, Got %u.",
                                   ads_buffer_sum_read_response_.size(), bytes_read_from_plc);
             return hardware_interface::return_type::ERROR;
@@ -453,7 +451,7 @@ namespace beckhoff_ads_hardware_interface
 
             if (item_error_code != ADSERR_NOERR)
             {
-                RCLCPP_WARN_THROTTLE(getLogger(), *logging_throttle_clock_, 1000,
+                RCLCPP_WARN_THROTTLE(getLogger(), logging_throttle_clock_, 1000,
                                      "ADS Sum Read operation corresponding to the state interface '%s' failed: 0x%X.",
                                      read_instruction.state_interface_name.c_str(), item_error_code);
 
@@ -539,7 +537,7 @@ namespace beckhoff_ads_hardware_interface
             */
             case PLCType::UNKNOWN:
             default:
-                RCLCPP_ERROR_THROTTLE(getLogger(), *logging_throttle_clock_, 1000,
+                RCLCPP_ERROR_THROTTLE(getLogger(), logging_throttle_clock_, 1000,
                                       "Unhandled or UNKNOWN PLC type (%d) for the interface '%s' during read.",
                                       static_cast<int>(read_instruction.plc_type), read_instruction.state_interface_name.c_str());
                 set_state(read_instruction.state_interface_name, std::numeric_limits<double>::quiet_NaN());
@@ -666,14 +664,14 @@ namespace beckhoff_ads_hardware_interface
 
         if (ads_sum_write_error != ADSERR_NOERR)
         {
-            RCLCPP_ERROR_THROTTLE(getLogger(), *logging_throttle_clock_, 1000,
+            RCLCPP_ERROR_THROTTLE(getLogger(), logging_throttle_clock_, 1000,
                                   "Overall ADS Sum Write Error: 0x%lX.", ads_sum_write_error);
             return hardware_interface::return_type::ERROR;
         }
 
         if (bytes_response_buffer_from_plc != ads_buffer_sum_write_response_.size())
         {
-            RCLCPP_ERROR_THROTTLE(getLogger(), *logging_throttle_clock_, 1000,
+            RCLCPP_ERROR_THROTTLE(getLogger(), logging_throttle_clock_, 1000,
                                   "ADS Sum Write response size mismatch (error codes). Expected %zu, Got %u.",
                                   ads_buffer_sum_write_response_.size(), bytes_response_buffer_from_plc);
         }
@@ -685,7 +683,7 @@ namespace beckhoff_ads_hardware_interface
             memcpy(&item_error_code, ads_buffer_sum_write_response_.data() + i * sizeof(uint32_t), sizeof(uint32_t));
             if (item_error_code != ADSERR_NOERR)
             {
-                RCLCPP_WARN_THROTTLE(getLogger(), *logging_throttle_clock_, 1000,
+                RCLCPP_WARN_THROTTLE(getLogger(), logging_throttle_clock_, 1000,
                                      "ADS Sum Write sub-op for '%s' (handle 0x%X) failed: 0x%X",
                                      ads_item_layouts_write_[i].plc_name_symbolic.c_str(), ads_item_layouts_write_[i].ads_handle, item_error_code);
                 any_item_write_failed = true;
