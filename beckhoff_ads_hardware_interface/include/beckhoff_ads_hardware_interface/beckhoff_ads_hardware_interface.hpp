@@ -12,13 +12,16 @@
 #ifndef beckhoff_ads_hardware_interface__BECKHOFF_SYSTEM_HPP_
 #define beckhoff_ads_hardware_interface__BECKHOFF_SYSTEM_HPP_
 
+#include <cstdint>
+#include <limits>
+#include <map>
 #include <string>
 #include <vector>
-#include <limits>
 
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/handle.hpp"
 #include "hardware_interface/hardware_info.hpp"
+#include "hardware_interface/types/hardware_component_interface_params.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
 #include "rclcpp/macros.hpp"
 #include "rclcpp_lifecycle/state.hpp"
@@ -51,7 +54,7 @@ namespace beckhoff_ads_hardware_interface
     // Configured from yaml
     std::string plc_name_symbolic; // e.g., "MAIN.Joint_Pos_State". Used to get the handle.
     PLCType plc_type;
-    uint32_t ads_handle; // PLC Handle for the symbolic name. Not using AdsHandle, as we don't need a shared ptr, just a value to paste in the message
+    uint32_t ads_handle = 0; // Raw PLC handle value kept alive by ads_symbol_handles_.
 
     size_t num_elements;          // 6 for LREAL[6], 1 for single LREAL/BOOL etc.
     size_t plc_element_byte_size; // byte size of ONE element on PLC (e.g., 8 for LREAL, 1 for BOOL).
@@ -98,7 +101,14 @@ namespace beckhoff_ads_hardware_interface
   class BeckhoffADSHardwareInterface : public hardware_interface::SystemInterface
   {
   public:
-    hardware_interface::CallbackReturn on_init(const hardware_interface::HardwareComponentParams &params);
+    hardware_interface::CallbackReturn on_init(
+        const hardware_interface::HardwareComponentInterfaceParams &params) override;
+
+    std::vector<hardware_interface::InterfaceDescription>
+    export_unlisted_state_interface_descriptions() override;
+
+    std::vector<hardware_interface::InterfaceDescription>
+    export_unlisted_command_interface_descriptions() override;
 
     hardware_interface::CallbackReturn on_configure(
         const rclcpp_lifecycle::State &previous_state) override;
@@ -130,7 +140,9 @@ namespace beckhoff_ads_hardware_interface
 
     // ADS Communication objects
     std::unique_ptr<AdsDevice> ads_device_; // Manages the route/connection to the PLC
+    std::vector<AdsHandle> ads_symbol_handles_; // Owns PLC symbol handles while sum read/write buffers use raw handle values.
     bool configure_ads_device();
+    bool refresh_ads_handles();
 
     // Metadata (populated in on interface export)
     // Describes each variable on the PLC

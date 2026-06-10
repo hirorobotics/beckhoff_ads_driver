@@ -15,6 +15,28 @@
         </command_interface>
     </xacro:macro>
 
+    <xacro:macro name="command_interface_PLC_array" params="name initial_value:='' PLC_symbol PLC_type n_elements index:=0 array_rows:='' array_cols:='' array_name_prefix:=''">
+        <command_interface name="${name}">
+            <xacro:if value="${initial_value != ''}">
+                <param name="initial_value">${initial_value}</param>
+            </xacro:if>
+            <param name="PLC_symbol">${PLC_symbol}</param>
+            <param name="PLC_type">${PLC_type}</param>
+            <param name="n_elements">${n_elements}</param>
+            <param name="index">${index}</param>
+            <param name="array_expand">true</param>
+            <xacro:if value="${array_rows != ''}">
+                <param name="array_rows">${array_rows}</param>
+            </xacro:if>
+            <xacro:if value="${array_cols != ''}">
+                <param name="array_cols">${array_cols}</param>
+            </xacro:if>
+            <xacro:if value="${array_name_prefix != ''}">
+                <param name="array_name_prefix">${array_name_prefix}</param>
+            </xacro:if>
+        </command_interface>
+    </xacro:macro>
+
     <xacro:macro name="state_interface_PLC" params="name PLC_symbol PLC_type n_elements:=1 index:=''">
         <state_interface name="${name}">
             <param name="PLC_symbol">${PLC_symbol}</param>
@@ -22,6 +44,25 @@
             <param name="n_elements">${n_elements}</param>
             <xacro:if value="${index != ''}">
                 <param name="index">${index}</param>
+            </xacro:if>
+        </state_interface>
+    </xacro:macro>
+
+    <xacro:macro name="state_interface_PLC_array" params="name PLC_symbol PLC_type n_elements index:=0 array_rows:='' array_cols:='' array_name_prefix:=''">
+        <state_interface name="${name}">
+            <param name="PLC_symbol">${PLC_symbol}</param>
+            <param name="PLC_type">${PLC_type}</param>
+            <param name="n_elements">${n_elements}</param>
+            <param name="index">${index}</param>
+            <param name="array_expand">true</param>
+            <xacro:if value="${array_rows != ''}">
+                <param name="array_rows">${array_rows}</param>
+            </xacro:if>
+            <xacro:if value="${array_cols != ''}">
+                <param name="array_cols">${array_cols}</param>
+            </xacro:if>
+            <xacro:if value="${array_name_prefix != ''}">
+                <param name="array_name_prefix">${array_name_prefix}</param>
             </xacro:if>
         </state_interface>
     </xacro:macro>
