@@ -1,0 +1,334 @@
+diff --git a/AdsLib/AdsDevice.cpp b/AdsLib/AdsDevice.cpp
+index 56d3fc8..6f9f934 100644
+--- a/AdsLib/AdsDevice.cpp
++++ b/AdsLib/AdsDevice.cpp
+@@ -207,10 +207,38 @@ long AdsDevice::ReadWriteReqEx2(uint32_t    indexGroup,
+                                   );
+ }
+ 
++long AdsDevice::ReadWriteReqExAsync(uint32_t    indexGroup,
++                                    uint32_t    indexOffset,
++                                    size_t      readLength,
++                                    size_t      writeLength,
++                                    const void* writeData) const
++{
++    if (readLength > std::numeric_limits<uint32_t>::max()) {
++        return ADSERR_DEVICE_INVALIDSIZE;
++    }
++    if (writeLength > std::numeric_limits<uint32_t>::max()) {
++        return ADSERR_DEVICE_INVALIDSIZE;
++    }
++    return AdsAsyncReadWriteReqEx(GetLocalPort(),
++                                  &m_Addr,
++                                  indexGroup, indexOffset,
++                                  static_cast<uint32_t>(readLength),
++                                  static_cast<uint32_t>(writeLength), writeData
++                                  );
++}
++
+ long AdsDevice::WriteReqEx(uint32_t group, uint32_t offset, size_t length, const void* buffer) const
+ {
+     if (length > std::numeric_limits<uint32_t>::max()) {
+         return ADSERR_DEVICE_INVALIDSIZE;
+     }
+     return AdsSyncWriteReqEx(GetLocalPort(), &m_Addr, group, offset, static_cast<uint32_t>(length), buffer);
+ }
++
++long AdsDevice::WriteReqExAsync(uint32_t group, uint32_t offset, size_t length, const void* buffer) const
++{
++    if (length > std::numeric_limits<uint32_t>::max()) {
++        return ADSERR_DEVICE_INVALIDSIZE;
++    }
++    return AdsAsyncWriteReqEx(GetLocalPort(), &m_Addr, group, offset, static_cast<uint32_t>(length), buffer);
++}
+diff --git a/AdsLib/AdsDevice.h b/AdsLib/AdsDevice.h
+index 68a353d..ce73d99 100644
+--- a/AdsLib/AdsDevice.h
++++ b/AdsLib/AdsDevice.h
+@@ -91,7 +91,13 @@ struct AdsDevice {
+                          size_t      writeLength,
+                          const void* writeData,
+                          uint32_t*   bytesRead) const;
++    long ReadWriteReqExAsync(uint32_t    indexGroup,
++                             uint32_t    indexOffset,
++                             size_t      readLength,
++                             size_t      writeLength,
++                             const void* writeData) const;
+     long WriteReqEx(uint32_t group, uint32_t offset, size_t length, const void* buffer) const;
++    long WriteReqExAsync(uint32_t group, uint32_t offset, size_t length, const void* buffer) const;
+ 
+     AdsResource<const AmsNetId> m_NetId;
+     const AmsAddr m_Addr;
+diff --git a/AdsLib/AdsLib.h b/AdsLib/AdsLib.h
+index 9ec4167..870486e 100644
+--- a/AdsLib/AdsLib.h
++++ b/AdsLib/AdsLib.h
+@@ -84,6 +84,24 @@ long AdsSyncReadWriteReqEx2(long           port,
+                             const void*    writeData,
+                             uint32_t*      bytesRead);
+ 
++/**
++ * Writes data into an ADS server and does not wait for the ADS response.
++ */
++long AdsAsyncReadWriteReqEx(long           port,
++                            const AmsAddr* pAddr,
++                            uint32_t       indexGroup,
++                            uint32_t       indexOffset,
++                            uint32_t       readLength,
++                            uint32_t       writeLength,
++                            const void*    writeData);
++
++long AdsAsyncWriteReqEx(long           port,
++                        const AmsAddr* pAddr,
++                        uint32_t       indexGroup,
++                        uint32_t       indexOffset,
++                        uint32_t       bufferLength,
++                        const void*    buffer);
++
+ /**
+  * Writes data synchronously to an ADS server.
+  * @param[in] port port number of an Ads port that had previously been opened with AdsPortOpenEx().
+diff --git a/AdsLib/AmsConnection.h b/AdsLib/AmsConnection.h
+index 8fdb04e..f131564 100644
+--- a/AdsLib/AmsConnection.h
++++ b/AdsLib/AmsConnection.h
+@@ -9,7 +9,9 @@
+ #include <atomic>
+ #include <chrono>
+ #include <condition_variable>
++#include <mutex>
+ #include <thread>
++#include <unordered_set>
+ 
+ using Timepoint = std::chrono::steady_clock::time_point;
+ #define WAITING_FOR_RESPONSE ((uint32_t)0xFFFFFFFF)
+@@ -61,6 +63,7 @@ struct AmsConnection {
+     SharedDispatcher CreateNotifyMapping(uint32_t hNotify, std::shared_ptr<Notification> notification);
+     long DeleteNotification(const AmsAddr& amsAddr, uint32_t hNotify, uint32_t tmms, uint16_t port);
+     long AdsRequest(AmsRequest& request, uint32_t timeout);
++    long AdsRequestNoResponse(AmsRequest& request);
+ 
+     /**
+      * Confirm if this AmsConnection is connected to one of the target addresses.
+@@ -84,10 +87,13 @@ private:
+     void Receive(void* buffer, size_t bytesToRead, timeval* timeout = nullptr) const;
+     void Receive(void* buffer, size_t bytesToRead, const Timepoint& deadline) const;
+     template<class T> void Receive(T& buffer) const { Receive(&buffer, sizeof(T)); }
+     AmsResponse* Write(AmsRequest& request, const AmsAddr srcAddr);
++    bool WriteNoResponse(AmsRequest& request, AmsAddr srcAddr);
+     void Recv();
+     void TryRecv();
+     uint32_t GetInvokeId();
++    bool ConsumeDetachedInvokeId(uint32_t id);
++    void ForgetDetachedInvokeId(uint32_t id);
+     AmsResponse* Reserve(AmsRequest* request, uint16_t port);
+     AmsResponse* GetPending(uint32_t id, uint16_t port);
+ 
+@@ -94,6 +100,9 @@ private:
+     std::recursive_mutex dispatcherListMutex;
+     SharedDispatcher DispatcherListAdd(const VirtualConnection& connection);
+     SharedDispatcher DispatcherListGet(const VirtualConnection& connection);
++
++    std::mutex detachedInvokeIdsMutex;
++    std::unordered_set<uint32_t> detachedInvokeIds;
+ 
+ public:
+     const uint32_t ownIp;
+diff --git a/AdsLib/AmsRouter.h b/AdsLib/AmsRouter.h
+index bde9439..71be869 100644
+--- a/AdsLib/AmsRouter.h
++++ b/AdsLib/AmsRouter.h
+@@ -25,6 +25,7 @@ struct AmsRouter : Router {
+     void DelRoute(const AmsNetId& ams);
+     AmsConnection* GetConnection(const AmsNetId& pAddr);
+     long AdsRequest(AmsRequest& request);
++    long AdsRequestNoResponse(AmsRequest& request);
+ 
+ private:
+     AmsNetId localAddr;
+diff --git a/AdsLib/standalone/AdsLib.cpp b/AdsLib/standalone/AdsLib.cpp
+index 52cfd56..fa4e35b 100644
+--- a/AdsLib/standalone/AdsLib.cpp
++++ b/AdsLib/standalone/AdsLib.cpp
+@@ -198,6 +198,71 @@ long AdsSyncReadWriteReqEx2(long           port,
+     }
+ }
+ 
++long AdsAsyncReadWriteReqEx(long           port,
++                            const AmsAddr* pAddr,
++                            uint32_t       indexGroup,
++                            uint32_t       indexOffset,
++                            uint32_t       readLength,
++                            uint32_t       writeLength,
++                            const void*    writeData)
++{
++    ASSERT_PORT_AND_AMSADDR(port, pAddr);
++    if (writeLength && !writeData) {
++        return ADSERR_CLIENT_INVALIDPARM;
++    }
++
++    try {
++        AmsRequest request {
++            *pAddr,
++            (uint16_t)port,
++            AoEHeader::READ_WRITE,
++            0,
++            nullptr,
++            nullptr,
++            sizeof(AoEReadWriteReqHeader) + writeLength
++        };
++        if (writeLength) {
++            request.frame.prepend(writeData, writeLength);
++        }
++        request.frame.prepend(AoEReadWriteReqHeader {
++            indexGroup,
++            indexOffset,
++            readLength,
++            writeLength
++        });
++        return GetRouter().AdsRequestNoResponse(request);
++    } catch (const std::bad_alloc&) {
++        return GLOBALERR_NO_MEMORY;
++    }
++}
++
++long AdsAsyncWriteReqEx(long           port,
++                        const AmsAddr* pAddr,
++                        uint32_t       indexGroup,
++                        uint32_t       indexOffset,
++                        uint32_t       bufferLength,
++                        const void*    buffer)
++{
++    ASSERT_PORT_AND_AMSADDR(port, pAddr);
++    if (bufferLength && !buffer) {
++        return ADSERR_CLIENT_INVALIDPARM;
++    }
++
++    try {
++        AmsRequest request {
++            *pAddr, (uint16_t)port, AoEHeader::WRITE, 0, nullptr, nullptr,
++            sizeof(AoERequestHeader) + bufferLength,
++        };
++        if (bufferLength) {
++            request.frame.prepend(buffer, bufferLength);
++        }
++        request.frame.prepend<AoERequestHeader>({ indexGroup, indexOffset, bufferLength });
++        return GetRouter().AdsRequestNoResponse(request);
++    } catch (const std::bad_alloc&) {
++        return GLOBALERR_NO_MEMORY;
++    }
++}
++
+ long AdsSyncWriteReqEx(long           port,
+                        const AmsAddr* pAddr,
+                        uint32_t       indexGroup,
+diff --git a/AdsLib/standalone/AmsConnection.cpp b/AdsLib/standalone/AmsConnection.cpp
+index e5d3e3c..b575a02 100644
+--- a/AdsLib/standalone/AmsConnection.cpp
++++ b/AdsLib/standalone/AmsConnection.cpp
+@@ -98,6 +98,36 @@ AmsResponse* AmsConnection::Write(AmsRequest& request, const AmsAddr srcAddr)
+     return response;
+ }
+ 
++bool AmsConnection::WriteNoResponse(AmsRequest& request, const AmsAddr srcAddr)
++{
++    const auto detachedInvokeId = GetInvokeId();
++    const AoEHeader aoeHeader {
++        request.destAddr.netId, request.destAddr.port,
++        srcAddr.netId, srcAddr.port,
++        request.cmdId,
++        static_cast<uint32_t>(request.frame.size()),
++        detachedInvokeId
++    };
++    request.frame.prepend<AoEHeader>(aoeHeader);
++
++    const AmsTcpHeader header { static_cast<uint32_t>(request.frame.size()) };
++    request.frame.prepend<AmsTcpHeader>(header);
++
++    {
++        std::lock_guard<std::mutex> lock(detachedInvokeIdsMutex);
++        if (detachedInvokeIds.size() > 4096) {
++            detachedInvokeIds.clear();
++        }
++        detachedInvokeIds.emplace(detachedInvokeId);
++    }
++
++    if (request.frame.size() != socket.write(request.frame)) {
++        ForgetDetachedInvokeId(detachedInvokeId);
++        return false;
++    }
++    return true;
++}
++
+ long AmsConnection::AdsRequest(AmsRequest& request, const uint32_t timeout)
+ {
+     AmsAddr srcAddr;
+@@ -115,6 +141,16 @@ long AmsConnection::AdsRequest(AmsRequest& request, const uint32_t timeout)
+     return -1;
+ }
+ 
++long AmsConnection::AdsRequestNoResponse(AmsRequest& request)
++{
++    AmsAddr srcAddr;
++    const auto status = router.GetLocalAddress(request.port, &srcAddr);
++    if (status) {
++        return status;
++    }
++    return WriteNoResponse(request, srcAddr) ? 0 : -1;
++}
++
+ uint32_t AmsConnection::GetInvokeId()
+ {
+     uint32_t result;
+@@ -133,6 +169,18 @@ AmsResponse* AmsConnection::GetPending(const uint32_t id, const uint16_t port)
+     return nullptr;
+ }
+ 
++bool AmsConnection::ConsumeDetachedInvokeId(const uint32_t id)
++{
++    std::lock_guard<std::mutex> lock(detachedInvokeIdsMutex);
++    return detachedInvokeIds.erase(id) != 0;
++}
++
++void AmsConnection::ForgetDetachedInvokeId(const uint32_t id)
++{
++    std::lock_guard<std::mutex> lock(detachedInvokeIdsMutex);
++    detachedInvokeIds.erase(id);
++}
++
+ AmsResponse* AmsConnection::Reserve(AmsRequest* request, const uint16_t port)
+ {
+     AmsRequest* isFree = nullptr;
+@@ -262,6 +315,11 @@ void AmsConnection::Recv()
+ 
++        if (ConsumeDetachedInvokeId(aoeHeader.invokeId())) {
++            ReceiveJunk(aoeHeader.length());
++            continue;
++        }
++
+         auto response = GetPending(aoeHeader.invokeId(), aoeHeader.targetPort());
+         if (!response) {
+             LOG_WARN("No response pending");
+             ReceiveJunk(aoeHeader.length());
+             continue;
+diff --git a/AdsLib/standalone/AmsRouter.cpp b/AdsLib/standalone/AmsRouter.cpp
+index dbbef7c..4a2ffcb 100644
+--- a/AdsLib/standalone/AmsRouter.cpp
++++ b/AdsLib/standalone/AmsRouter.cpp
+@@ -160,6 +160,16 @@ long AmsRouter::AdsRequest(AmsRequest& request)
+     return ads->AdsRequest(request, ports[request.port - Router::PORT_BASE].tmms);
+ }
+ 
++long AmsRouter::AdsRequestNoResponse(AmsRequest& request)
++{
++    auto ads = GetConnection(request.destAddr.netId);
++    if (!ads) {
++        return GLOBALERR_MISSING_ROUTE;
++    }
++
++    return ads->AdsRequestNoResponse(request);
++}
++
+ long AmsRouter::AddNotification(AmsRequest& request, uint32_t* pNotification, std::shared_ptr<Notification> notify)
+ {
+     if (request.bytesRead) {
