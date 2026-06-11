@@ -12,9 +12,11 @@
 #ifndef beckhoff_ads_hardware_interface__BECKHOFF_SYSTEM_HPP_
 #define beckhoff_ads_hardware_interface__BECKHOFF_SYSTEM_HPP_
 
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -70,6 +72,10 @@ namespace beckhoff_ads_hardware_interface
     // for packing sum write response [ADS_ITEM_REQ_HEADER_1,...,ADS_ITEM_REQ_HEADER_N | Data1_bytes,...,DataN_bytes]
     size_t offset_in_write_request_data; // Byte offset where this item's data starts.
 
+    // for decoding ADS notifications
+    size_t notification_decode_offset = 0;
+    size_t notification_decode_count = 0;
+
     // For interfaces targeting the same PLC symbol, store all their names with their corresponding index inside a map. This will be useful when calling thr ROS2 set_state and set_command functions.
     std::map<size_t, std::string> ros2_interfaces_;
   };
@@ -88,6 +94,7 @@ namespace beckhoff_ads_hardware_interface
     size_t read_buffer_offset_data;
     PLCType plc_type;
     std::string state_interface_name;
+    size_t notification_value_index = 0;
   };
 
   struct WriteInstruction
@@ -98,9 +105,18 @@ namespace beckhoff_ads_hardware_interface
     std::string fallback_state_interface_name; // The state interface name corresponding to the current command interface name
   };
 
+  struct NotificationDecodeInstruction
+  {
+    size_t notification_data_offset;
+    PLCType plc_type;
+    size_t notification_value_index;
+  };
+
   class BeckhoffADSHardwareInterface : public hardware_interface::SystemInterface
   {
   public:
+    ~BeckhoffADSHardwareInterface() override;
+
     hardware_interface::CallbackReturn on_init(
         const hardware_interface::HardwareComponentInterfaceParams &params) override;
 
@@ -152,6 +168,14 @@ namespace beckhoff_ads_hardware_interface
     void ads_write_layout_configure();
     bool build_sum_read_buffers();
     bool build_sum_write_buffers();
+    bool build_notification_read_buffers();
+    bool configure_ads_notifications();
+    void clear_ads_notifications();
+    void handle_ads_notification(size_t layout_index, const uint8_t *data, size_t data_size);
+    static void ads_notification_callback(
+        const AmsAddr *addr,
+        const AdsNotificationHeader *notification,
+        uint32_t user_handle);
 
     // ADS Sum Command Buffers
     // SENT: List of ADS_ITEM_REQ_HEADER structs
@@ -165,6 +189,17 @@ namespace beckhoff_ads_hardware_interface
     std::vector<uint8_t> ads_buffer_sum_write_request_;
     std::vector<uint8_t> ads_buffer_sum_write_response_;
     size_t num_items_write_ = 0;
+
+    bool use_ads_notifications_for_read_ = true;
+    bool use_ads_async_write_ = true;
+    uint32_t ads_notification_cycle_time_100ns_ = 10000; // 1 ms
+    uint32_t ads_notification_max_delay_100ns_ = 0;
+    std::vector<AdsHandle> ads_notification_handles_;
+    std::vector<uint32_t> ads_notification_user_handles_;
+    std::vector<NotificationDecodeInstruction> ads_notification_decode_instructions_;
+    std::unique_ptr<std::atomic<double>[]> ads_notification_state_values_;
+    size_t ads_notification_state_value_count_ = 0;
+    std::atomic<bool> ads_notification_sample_received_{false};
 
     std::vector<ReadInstruction> ads_read_instructions_;
     std::vector<WriteInstruction> ads_write_instructions_;
