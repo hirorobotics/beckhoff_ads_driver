@@ -1719,6 +1719,8 @@ namespace beckhoff_ads_hardware_interface
     {
         RCLCPP_INFO(getLogger(), "Releasing ADS resources...");
         clear_ads_notifications();
+        // Symbol handle deleters reference ads_device_, so release them first.
+        ads_symbol_handles_.clear();
         if (ads_device_)
         {
             ads_device_.reset();
