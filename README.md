@@ -6,7 +6,9 @@ This package provides a `ros2_control` **SystemInterface** for communicating wit
 
 The core of this hardware interface is in using **ADS Sum-Commands**. This allows us to read/write multiple PLC variables in a single network transaction, bringing the total network transactions per update loop to only 2 (one **read** and one **write**).
 
-This package is built upon the [official `beckhoff/ADS` library](https://github.com/Beckhoff/ADS), which handles the low-level ADS protocol communication.
+For low-latency control loops, the driver can use ADS notifications for state reads and async/no-response ADS SumUp writes for commands. In this mode, `read()` consumes the latest PLC-pushed notification sample and `write()` queues the command packet without waiting for the PLC write response.
+
+This package builds a patched copy of the [official `beckhoff/ADS` library](https://github.com/Beckhoff/ADS), which handles the low-level ADS protocol communication.
 
 ---
 
@@ -20,7 +22,7 @@ This package is built upon the [official `beckhoff/ADS` library](https://github.
 ## Requirements
 
 * ROS 2 (Jazzy Jalisco or newer recommended)
-* [ads_vendor](https://github.com/b-robotized/ads_vendor) package
+* Git, used at build time to fetch the pinned Beckhoff ADS source
 
 
 ## Configuration
@@ -35,6 +37,10 @@ These parameters define the connection to the target PLC.
 | `plc_ams_net_id`   | `string` | The AMS NetID of the target PLC (e.g., "192.168.1.1.1.1"). |
 | `local_ams_net_id` | `string` | The AMS NetID of the computer running ROS.      |
 | `plc_ams_port`     | `string` | The AMS Port of the PLC runtime (e.g., "851").  |
+| `ads_read_mode`    | `string` | Optional. `notification` (default) uses PLC-pushed ADS notifications; `polling` uses synchronous ADS SumRead. |
+| `ads_write_mode`   | `string` | Optional. `async` (default) sends ADS SumUp Write without waiting for the response; `sync` waits and checks per-item write errors. |
+| `ads_notification_cycle_time_us` | `integer` | Optional. Notification cycle time in microseconds. Default: `1000`. Set `0` to request every PLC task cycle. |
+| `ads_notification_max_delay_us`  | `integer` | Optional. Maximum notification delay in microseconds. Default: `0`. |
 
 ### 2. Interface Parameters
 For each `<state_interface>` and `<command_interface>`, you must provide parameters that link it to a PLC variable.
@@ -134,9 +140,6 @@ In our case for example, it corresponds to the interface `virbr0`.
 # Future Plans
 Feel free to contribute on any of these!
 
-### ADS Notification-Based Updates
-The ADS protocol supports asynchronous callbacks, where the PLC can push a variable update to the client ("notifications"). We plan to add a mechanism to register for these notifications directly from the URDF. This will allow state interfaces for rarely updated variables to be updated via callbacks instead of being polled in every `read()` cycle, further optimizing the main control loop.
-
 ### Support for STRING Data Type
 We plan to add support for reading PLC `STRING` variables. As `ros2_control` state interfaces are numeric, this would likely be exposed through a separate mechanism, such as publishing to a ROS topic, for monitoring purposes.
 
@@ -145,6 +148,6 @@ We may investigate adding support for reading and writing to user-defined struct
 
 ## License
 
-This ads_vendor package was created by [B-Robotized GmbH](https://www.b-robotized.com/) and is provided under the [Apache 2.0 License](https://www.apache.org/licenses/LICENSE-2.0).
+This package was created by [B-Robotized GmbH](https://www.b-robotized.com/) and is provided under the [Apache 2.0 License](https://www.apache.org/licenses/LICENSE-2.0).
 
 The vendored Beckhoff ADS library is subject to its own license, which can be found in [its repository](https://github.com/Beckhoff/ADS).
